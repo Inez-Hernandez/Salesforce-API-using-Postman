@@ -1,0 +1,348 @@
+{
+	"info": {
+		"_postman_id": "",
+		"name": "",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": ""
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Get Access Token",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Specifying Postman as the client for Salesforce logs \r",
+									"pm.request.headers.add({key: 'Sforce-Call-Options', value: 'client=postman' });"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var SFToken = JSON.parse(responseBody);\r",
+									"postman.setEnvironmentVariable(\"SF_token\", SFToken.access_token);\r",
+									"SFToken = SFToken.access_token;\r",
+									"console.log(SFToken);\r",
+									"\r",
+									"\r",
+									"console.log(\"Zero out values\");\r",
+									"pm.environment.set(\"JSONResponse_zero\", 0);\r",
+									"pm.environment.set(\"planInfo_zero\", 0);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{SF_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "grant_type",
+									"value": "password",
+									"type": "text"
+								},
+								{
+									"key": "client_id",
+									"value": "{{SF_clientId}}",
+									"type": "text"
+								},
+								{
+									"key": "client_secret",
+									"value": "{{SF_clientSecret}}",
+									"type": "text"
+								},
+								{
+									"key": "username",
+									"value": "{{SF_un}}",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "{{SF_pw}}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{_endpoint}}/services/oauth2/token",
+							"host": [
+								"{{_endpoint}}"
+							],
+							"path": [
+								"services",
+								"oauth2",
+								"token"
+							]
+						},
+						"description": "This request makes a non-browser token request to SalesForce using an authorized users profile login information passed in through the environment variables.\n\nFor security reasons the API keys and credentials are stored as secret environment variables.\n\nTo reduce clutter in the environment variables list, __endpoint variable used here in the url is stored at the collection level instead of environment level. To view and edit the URL endpoint select the collection -> Variables\n\nNote that this POST request is only asking to the access token and then storing the value as an environment variable to be used in our REST API requests\n\nA note about the password variable, it is stored as the password and my sf secret token appended."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "REST",
+			"item": [
+				{
+					"name": "SObject Create",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"//let repeatTemp = pm.environment.get(\"repeatTemp\");\r",
+									"// Details: Before we send the Body request we need to grab the JSON reponse body that is stored in the environment variable JSONResponse as a string.\r",
+									"// From there we then parse the response and save to dynamic environment variables that we can then pass to the response body.\r",
+									"// Why? We are expecting an array of items that will need to be pushed up to SF, arrays cannot be stored in Environment Variables in Postman, so we store as a string.\r",
+									"// Because it is stored as a string, we then need to parse to convert back into an array of objects so we can grab all the individual fields to be then passed to the body. To pass to the body of the request, these individual fields need to be stored in environment variables to be accessable.\r",
+									"// We will then use the Tests script field to itterate through the array values.\r",
+									"console.log(\"IN PRE-REQUEST SCRIPT\")\r",
+									"// In jsonData save the environment variable JSONResponse that has the GET response string from RPAG\r",
+									"var jsonData = pm.environment.get(\"JSONResponse\");\r",
+									"var i = pm.environment.get(\"JSONResponse_zero\");\r",
+									"var j = pm.environment.get(\"planInfo_zero\");\r",
+									"var responseCount = pm.environment.get(\"JSONResponse_zero\");\r",
+									"console.log(\"START ARRAY AT: \", i);\r",
+									"console.log(\"parsed1\");\r",
+									"\r",
+									"// Parsing into jsonData variable, this transforms the string values to array objects.\r",
+									"jsonData = JSON.parse(jsonData);\r",
+									"console.log(\"parsed2\");\r",
+									"\r",
+									"pm.variables.set(\"jsonData\", jsonData);\r",
+									"console.log(\"parsed3\");\r",
+									"// Now we have to check if there is a client in Salesforce where we can apply the plan:\r",
+									"var crmAccountIdVar = null;\r",
+									"crmAccountIdVar = jsonData[i][\"crmAccountId\"];\r",
+									"crmAccountIdVar = pm.environment.set(\"salesforce_18ID\", crmAccountIdVar);\r",
+									"\r",
+									"// if PlanInfo length is greater than 1, then we need to do nested loops to get and create the records, but how will we\r",
+									"// send the body information? If there are two records, then we get the number of plans numPlans and save it as an environment variable.\r",
+									"// then we let it run through and add one to the environment variable Array so it hits the same record again and then we grab the info for the numPlans record and send to body and do again.\r",
+									"var planInfoSize = null;\r",
+									"var obj = JSON.parse(jsonData[i][\"planInfo\"]);\r",
+									"\r",
+									"console.log(\"check size info\");\r",
+									"if (obj == null){\r",
+									"    pm.environment.set(\"planInfo_zero\", 0);\r",
+									"    console.log(\"set planinfo size to 1\");\r",
+									"}\r",
+									"else {\r",
+									"    console.log(\"in else statment\");\r",
+									"    planInfoSize = Object.keys(jsonData[i][\"planInfo\"]).length;\r",
+									"\r",
+									"    pm.environment.set(\"planInfo_size\", planInfoSize);\r",
+									"    console.log(\"planinfosize:\",pm.environment.get(\"planInfo_size\"));\r",
+									"\r",
+									"    var planIdVar = 0;\r",
+									"    planIdVar = jsonData[i][\"planInfo\"][j][\"planId\"];\r",
+									"    planIdVar = pm.environment.set(\"planIdVar\", planIdVar);\r",
+									"    console.log(pm.environment.get(\"planIdVar\"));\r",
+									"\r",
+									"    // now set totalAssetsVar environment variable for totalAssets, using the replace function to clean up value for SF\r",
+									"    // grabs the value from the array object, removes the $ first, then removes all instances of ',' commas for SF formatting reasons\r",
+									"    var totalAssetsVar = null;\r",
+									"    totalAssetsVar = jsonData[i][\"planInfo\"][j][\"totalAssets\"];\r",
+									"    if (totalAssetsVar == null){\r",
+									"        totalAssetsVar = 0;\r",
+									"    }\r",
+									"    else{\r",
+									"        totalAssetsVar = totalAssetsVar.replace(\"$\",\"\");\r",
+									"        totalAssetsVar = totalAssetsVar.replace(/,/g,\"\");\r",
+									"        pm.environment.set(\"totalAssetsVar\", totalAssetsVar);\r",
+									"    }\r",
+									"\r",
+									"    console.log(pm.environment.get(\"totalAssets\"));\r",
+									"\r",
+									"    // convert the string date value to YYYY-MM-DD, set assetsAsOfDateVar environment variable for assetsAsOfDate\r",
+									"    // source: https://www.w3schools.com/js/js_json_parse.asp#:~:text=Exceptions-,Parsing%20Dates,-Date%20objects%20are\r",
+									"    var assetsAsOfDateVar = null;\r",
+									"    assetsAsOfDateVar = new Date(jsonData[i][\"planInfo\"][j][\"assetsAsOfDate\"]);\r",
+									"    assetsAsOfDateVar = pm.environment.set(\"assetsAsOfDateVar\",assetsAsOfDateVar);\r",
+									"    console.log(pm.environment.get(\"assetsAsOfDateVar\"));\r",
+									"\r",
+									"    // now set planTypeVar environment variable for planType\r",
+									"    var planTypeVar = null;\r",
+									"    planTypeVar = jsonData[i][\"planInfo\"][j][\"planType\"];\r",
+									"    planTypeVar = pm.environment.set(\"planTypeVar\", planTypeVar);\r",
+									"    console.log(pm.environment.get(\"planTypeVar\"));\r",
+									"\r",
+									"    // now set planNameVar environment variable for planName\r",
+									"    var planNameVar = null;\r",
+									"    planNameVar = jsonData[i][\"planInfo\"][j][\"planName\"];\r",
+									"    planNameVar = pm.environment.set(\"planNameVar\", planNameVar);\r",
+									"    console.log(pm.environment.get(\"planNameVar\"));\r",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// First we want to check for multiple plans associated with a single company.\r",
+									"// If there are multiple, then we want to make sure we don't go to the next client.\r",
+									"// if plan info is 1, then don't add to the count, otherwise add the the countfromzero variable\r",
+									"console.log(\"IN TEST SCRIPTS\")\r",
+									"var planInfoZero = pm.environment.get(\"planInfo_zero\"); // because the planInfo_size gets reset in the pre-request, will need to use the planInfo_zero variable to check when we have reached the end of the array.\r",
+									"var planInfoSize = pm.environment.get(\"planInfo_size\");\r",
+									"var clientZero = pm.environment.get(\"JSONResponse_zero\");\r",
+									"var clientCount  = pm.environment.get(\"JSONResponse_size\");\r",
+									"console.log(\"At Top: planInfoZero: \", planInfoZero, \" plnainfo_size:  \", planInfoSize, \"clientZero: \", clientZero);\r",
+									"\r",
+									"\r",
+									"pm.test(\"Check Error handler\", () => {\r",
+									"    if (pm.response.code >= 400) {\r",
+									"    console.log(\"Got a 400 error code from pm\")\r",
+									"    // if there is no 18id in the planCRMId field then we want to move on to the next client by adding to our array count and runing the post request again.\r",
+									"   if (clientZero != (clientCount - 1)){\r",
+									"        clientZero++;\r",
+									"        pm.environment.set(\"JSONResponse_zero\", clientZero);\r",
+									"        // in either case we will go repeat the request to either go to client[x] or client[x+1];\r",
+									"        // but still need to wrap in a clause to prevent it trying to access a non existant record\r",
+									"        postman.setNextRequest(\"SObject Create\");\r",
+									"    }\r",
+									"    }\r",
+									"});\r",
+									"\r",
+									"pm.test(\"Successful POST Request to SF\", () => {\r",
+									"    if (pm.response.code === 200) {\r",
+									"        console.log(\"Got a valid 18id!\");\r",
+									"    // have to include the m - 1, as the x_zero will start at 0\r",
+									"    if (planInfoZero == (planInfoSize - 1)){\r",
+									"        // first zero out plan size zero variable:\r",
+									"        pm.environment.set(\"planInfo_zero\", 0);\r",
+									"        if (clientZero != (clientCount - 1)){\r",
+									"            clientZero++;\r",
+									"            pm.environment.set(\"JSONResponse_zero\", clientZero);\r",
+									"            // in either case we will go repeat the request to either go to client[x] or client[x+1];\r",
+									"            // but still need to wrap in a clause to prevent it trying to access a non existant record\r",
+									"            postman.setNextRequest(\"SObject Create\");\r",
+									"        }\r",
+									"        pm.environment.set(\"planInfo_zero\", 0);\r",
+									"        console.log(\"Moving onto next client info and zero out plan\")\r",
+									"    }\r",
+									"    // otherwise if we are not at the end of the plans, we update plan count and do this post request again using the same JSONResponse_zero value\r",
+									"    else{\r",
+									"        console.log('Moving onto next plan associated with client');\r",
+									"        // noting that the planinfo_size will get reset in the pre-request script\r",
+									"        planInfoZero++;\r",
+									"        pm.environment.set(\"planInfo_zero\", planInfoZero);\r",
+									"        // If we were moving through regularly, we would subtract the client, but here we don't have to do that so it will grab the same client, client[x] on the next iteration and go through and add the next plan to that client profile\r",
+									"\r",
+									"        // in either case we will go repeat the request to either go to client[x] or client[x+1];\r",
+									"        // but still need to wrap in a clause to prevent it trying to access a non existant record\r",
+									"        postman.setNextRequest(\"SObject Create\");\r",
+									"        \r",
+									"    }\r",
+									"\r",
+									"    }\r",
+									"})\r",
+									"\r",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{SF_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"Account__c\": \"{{salesforce_18ID}}\",\n    \"Name\": \"{{planNameVar}}\",\n    \"Asset_As_Of_Date__c\": \"{{assetsAsOfDateVar}}\",\n    \"Plan_Type__c\": \"{{planTypeVar}}\",\n    \"planId__c\": \"{{planIdVar}}\",\n    \"Total_Assets__c\": \"{{totalAssetsVar}}\"\n}"
+						},
+						"url": {
+							"raw": "{{_endpoint}}/services/data/v{{version}}/sobjects/:SOBJECT_API_NAME",
+							"host": [
+								"{{_endpoint}}"
+							],
+							"path": [
+								"services",
+								"data",
+								"v{{version}}",
+								"sobjects",
+								":SOBJECT_API_NAME"
+							],
+							"variable": [
+								{
+									"key": "SOBJECT_API_NAME",
+									"value": "Ret_Plan__c"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "_endpoint",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "version",
+			"value": "55.0",
+			"type": "string"
+		}
+	]
+}
